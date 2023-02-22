@@ -1,0 +1,119 @@
+#define Stumpff functions to calculate C and S
+
+def func_C(z):
+    if z>0:
+        c = (1-math.cos(np.sqrt(z)))/z
+    elif z < 0 : 
+        c = (math.cosh(np.sqrt(-z)) - 1)/(-z)
+    else: 
+        c = 1/2
+    return c
+
+def func_S(z):
+    if z>0: 
+        s = (np.sqrt(z) - math.sin(np.sqrt(z)))/ (np.sqrt(z))**3
+    elif z<0 : 
+        s = (math.sinh(np.sqrt(-z)) - np.sqrt(-z))/ (np.sqrt(-z))**3
+    else: 
+        s = 1/6
+    return s
+
+#define Universal Function Orbit Propogator given initial state and time of flight
+
+def func_UVOrbitProp(state_0, mu, t0, t1, tol):
+    
+    #Stumpff functions 'func_C' and 'func_S' need to be defined before running this function
+    #This function returns orbit state as an array [rx, ry, rz, vx, vy, vz]
+    #And needs four arguments : initial orbit state as list or array, mu of central body, start time in seconds, end time in seconds, tolerance for iterator
+    
+    # given conditions
+    rx_0 = state_0[0]
+    ry_0 = state_0[1]
+    rz_0 = state_0[2]
+    vx_0 = state_0[3]
+    vy_0 = state_0[4]
+    vz_0 = state_0[5]
+    t_0 = t0
+    t = t1
+    tol = tol
+
+    #state_0 = [rx_0, ry_0, rz_0, vx_0, vy_0, vz_0]
+
+    #compute value of r_0
+    r_0 = np.sqrt(sum(n**2 for n in state_0[:3]))
+    #print("r0 =", r_0)
+
+    #compute of v_0
+    v_0 = np.sqrt(sum(n**2 for n in state_0[3:6]))
+    #print("v0 =", v_0)
+
+    #compute semi-major axis 'a' and check positive/negative sign
+    a = 1 / (2/r_0 - v_0**2/mu)
+    #print("a = ", a)
+    #if a>0:
+    #   print("orbit is not a hyperbola because a is positive")
+    #else:
+    #   print("orbit is a hyperbola, use -a in subsequent computations")
+
+    #compute inverse of a to use in f, f_d, g, g_d formulae
+    a_inv = 1/a
+
+    #determine radial component of v_0
+    v_0_rad = np.dot(state_0[3:6], (state_0[:3]/r_0)) 
+    #print("radial component of v0 = ", round(v_0_rad,3))
+
+    #compute eccentricity e using h and E
+    h_vec = np.cross(state_0[:3], state_0[3:6])
+    #print("h vector is ", h_vec)
+    h_scal = np.sqrt(sum(n**2 for n in h_vec))
+    #print("h scalar is ", h_scal)
+    E = (v_0**2 / 2) - mu/r_0
+    #print("Energy is ", E)
+    e = np.sqrt(1 + (2*E*(h_scal**2)/(mu**2)))
+    #print("eccentricity is ", e)
+
+
+    #initial guess of x, assuming a is positive i.e. orbit is NOT hyperbola
+    x_guess = np.sqrt(mu)*(t - t_0)*np.abs(a_inv)
+    #print("first guess of X is ", x_guess)
+
+    #find best x within defined tolerance
+    x_i = x_guess
+    n = 0
+    ratio = 1
+
+    while abs(ratio) > tol and n <= 100:
+        n+=1    
+        zi = a_inv * x_i**2
+
+        Ci = func_C(zi)
+        Si = func_S(zi)
+
+        f = ((r_0*v_0_rad)/np.sqrt(mu))*(x_i**2)*Ci + (1-a_inv*r_0)*(x_i**3)*Si + r_0*x_i - np.sqrt(mu)*(t-t_0)
+        f_d = ((r_0*v_0_rad)/np.sqrt(mu))*x_i*(1 - a_inv*(x_i**2)*Si) + (1 - a_inv*r_0)*(x_i**2)*Ci + r_0
+
+        ratio = f/f_d
+        x_i = x_i - ratio
+        #print(n, "\t", ratio, "\t", x_i)
+
+    #print("best value of X within tolerance is ", x_i, " starting with X_guess at ", x_guess, " after", n, " iterations.")
+
+    #compute f, g, r(t), f_d, g_d, v(t) with the best value of X
+    x = x_i
+    z = a_inv*x**2
+    f = 1 - (x**2/r_0)*func_C(z)
+    g = (t - t_0) - (np.sqrt(1/mu))*(x**3)*func_S(z)
+
+    r_t_vec = f*np.array([rx_0, ry_0, rz_0]) + g*np.array([vx_0, vy_0, vz_0])
+    #print ("position vector r(t) is ", r_t_vec, "km")
+
+    r_t_scal = np.sqrt(sum(n**2 for n in r_t_vec))
+    f_d = (np.sqrt(mu)/(r_t_scal*r_0))*(a_inv*(x**3)*func_S(z) - x)
+    g_d = 1 - ((x**2)/r_t_scal)*func_C(z)
+
+    v_t_vec = f_d*np.array([rx_0, ry_0, rz_0]) + g_d*np.array([vx_0, vy_0, vz_0])
+    #print ("velocity vector v(t) is ", v_t_vec, "km/s")
+    
+    state_t = np.concatenate((r_t_vec, v_t_vec))
+    
+    return state_t
